@@ -1,0 +1,50 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: blacklist-ingress
+  namespace: bl-cd
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    acme.cert-manager.io/http01-ingress-class: "nginx"
+    kubernetes.io/ingress.allow-http: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/enable-access-log: "true"
+spec:
+  ingressClassName: {{ index .Values "ingress-nginx" "ingressClass" }}
+  rules:
+  - host: {{ index .Values "ingress-nginx" "host" }}
+    http:
+      paths:
+      - path: /.well-known/acme-challenge
+        pathType: ImplementationSpecific
+        backend:
+          service:
+            name: blacklist-umbrella-blacklist-app
+            port:
+              number: 80
+      # Serve static files
+      # - path: /favicon.ico
+      #   pathType: ImplementationSpecific
+      #   backend:
+      #     service:
+      #       name: static-server
+      #       port:
+      #         number: 80
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: blacklist-umbrella-blacklist-app
+            port:
+              number: {{ index .Values "ingress-nginx" "service" "port" }}
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: static-server
+            port:
+              number: 80
+  tls:
+  - hosts:
+    - {{ index .Values "ingress-nginx" "host" }}
+    secretName: bl-tls-secret

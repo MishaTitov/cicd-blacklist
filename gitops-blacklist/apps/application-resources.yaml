@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: apps-resources
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"  # Sync after cert-manager
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/MishaTitov/gitops-blacklist.git
+    path: apps-resources  # Directory with YAMLs
+    targetRevision: main
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: resources  # Not used for ClusterIssuer, but required
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

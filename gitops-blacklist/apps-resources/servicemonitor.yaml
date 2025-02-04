@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: blacklist-monitor
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/instance: kube-prometheus-stack  # Ensure this matches Prometheus' serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      # Match the existing labels from your Service
+      app.kubernetes.io/name: blacklist-app
+      app.kubernetes.io/instance: blacklist-umbrella
+  namespaceSelector:
+    matchNames:
+      - bl-cd  # Namespace of the Service
+  endpoints:
+  - port: http  # Use the port number (since the Service port is unnamed)
+    path: /metrics
+    interval: 30s
+    relabelings:
+    - action: replace
+      sourceLabels: []  # Explicitly override the job label
+      targetLabel: job
+      replacement: blacklist-monitor  # Force the job name to "blacklist-monitor"

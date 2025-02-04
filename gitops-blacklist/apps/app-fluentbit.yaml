@@ -1,0 +1,126 @@
+# app-fluentbit.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: fluentbit
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://fluent.github.io/helm-charts  # Fluent Bit Helm chart repository
+    targetRevision: 0.20.5                        # Fluent Bit chart version
+    chart: fluent-bit                             # Chart name
+    helm:
+      values: |
+        service:
+          log_level: debug
+
+        config:
+          filters: |
+            [FILTER]
+                Name kubernetes
+                Match kube.*
+                Merge_Log On
+                Keep_Log Off
+                K8S-Logging.Parser On
+                K8S-Logging.Exclude On
+
+
+            [FILTER]
+                Name parser
+                Match kube.var.log.containers.*nginx*
+                Key_Name log
+                Parser nginx
+                Reserve_Data On
+
+            [FILTER]
+                Name modify
+                Match kube.var.log.containers.*nginx*
+                Add source nginx
+
+            [FILTER]
+                Name modify
+                Match kube.var.log.containers.*blacklist-app*
+                Add source app
+
+          outputs: |
+            [OUTPUT]
+                Name es
+                Match kube.var.log.containers.*nginx*
+                Host elasticsearch-master.logging.svc.cluster.local
+                Port 9200
+                Index nginx-con-logs-%Y.%m.%d
+                Type _doc
+                HTTP_User elastic
+                HTTP_Passwd {{ .Values.elasticsearch.password | default "espassword" }}
+                TLS On
+                TLS.Verify Off
+                Logstash_Format On
+                Logstash_Prefix bl-nginx
+                Retry_Limit False
+                Suppress_Type_Name On
+
+            [OUTPUT]
+                Name es
+                Match kube.var.log.containers.*blacklist-app*
+                Host elasticsearch-master.logging.svc.cluster.local
+                Port 9200
+                Index blacklist-app-logs-%Y.%m.%d
+                Type _doc
+                HTTP_User elastic
+                HTTP_Passwd {{ .Values.elasticsearch.password | default "espassword" }}
+                TLS On
+                TLS.Verify Off
+                Logstash_Format On
+                Logstash_Prefix blapp
+                Retry_Limit False
+                Suppress_Type_Name On
+
+          parsers: |
+            [PARSER]
+                Name nginx
+                Format regex
+                Regex ^(?<remote>[^ ]*) (?<host>[^ ]*) (?<user>[^ ]*) \[(?<time>[^\]]*)\] "(?<method>\S+)(?: +(?<path>[^\"]*?)(?: +\S*)?)?" (?<code>[^ ]*) (?<size>[^ ]*)(?: "(?<referer>[^\"]*)" "(?<agent>[^\"]*)")?
+                Time_Key time
+                Time_Format %d/%b/%Y:%H:%M:%S %z
+
+            [PARSER]
+                Name werkzeug
+                Format regex
+                Regex (?<timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) - (?<module>\w+) - (?<level>\w+) - (?<remote_addr>[^ ]*) - - \[(?:[^\]]*)\] "(?<method>\S+) (?<path>[^ ]*) (?<protocol>[^\"]*)" (?<status_code>\d+)
+                Time_Key timestamp
+                Time_Format %Y-%m-%d %H:%M:%S,%L
+                Types status_code:integer
+
+        # DaemonSet configuration
+        daemonSet:
+          enabled: true
+
+        # Resources
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+
+        # Tolerations (optional, for running on all nodes)
+        tolerations:
+          - operator: Exists
+
+        # NodeSelector (optional, for specific nodes)
+        nodeSelector: {}
+
+        # Affinity (optional, for pod distribution)
+        affinity: {}
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: logging  # Namespace for Fluent Bit (same as Elasticsearch and Kibana)
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

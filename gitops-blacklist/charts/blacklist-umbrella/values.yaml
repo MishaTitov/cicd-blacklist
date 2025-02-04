@@ -1,0 +1,95 @@
+# blacklist-umbrella/values.yaml
+frontend:
+  image:
+    repository: 600627353694.dkr.ecr.ap-south-1.amazonaws.com/michael.titov/blacklist-frontend
+    tag: 1.0.4
+
+blacklist-app:
+  replicaCount: 1
+  image:
+    repository: 600627353694.dkr.ecr.ap-south-1.amazonaws.com/michael.titov/blacklist-app
+    tag: 1.0.4
+  service:
+    spec:
+      name: http
+      type: ClusterIP  # External access for Flask app
+      port: 80
+      targetPort: 5000
+  db:
+    user:
+      valueFrom:
+        secretKeyRef:
+          name: mongodb-secret
+          key: DB_USERNAME
+    password:
+      valueFrom:
+        secretKeyRef:
+          name: mongodb-secret
+          key: DB_PASSWORD
+    database:
+      valueFrom:
+        secretKeyRef:
+          name: mongodb-secret
+          key: DB_NAME
+  env:
+    FLASK_ENV: production
+    MONGO_URI: "mongodb://${DB_USERNAEM}:${DB_PASSWORD}@blacklist-umbrella-mongodb-headless:27017/${DB_NAME}?authSource=${DB_NAME}"
+    MONGO_DATABASE: "${DB_NAME}"
+    
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+    requests:
+      cpu: "250m"
+      memory: "128Mi"
+
+mongodb:
+  namespaceOverride: "mongodb"
+  namespace: "mongodb"
+  architecture: replicaset
+  replicaCount: 1
+  extraEnvVars:
+    - name: DB_NAME
+      valueFrom:
+        secretKeyRef:
+          name: mongodb-secret
+          key: DB_NAME
+    - name: DB_USERNAME
+      valueFrom:
+        secretKeyRef:
+          name: mongodb-secret
+          key: DB_USERNAME
+    - name: DB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: mongodb-secret
+          key: DB_PASSWORD
+  initdbScriptsConfigMap: mongodb-init-script
+  auth:
+    enabled: true
+    rootPassword:
+      valueFrom:
+        secretKeyRef:
+          name: mongodb-secret
+          key: ROOT_PASSWORD
+  arbiter:
+    enabled: false
+  replication:
+    enabled: true
+    replSetName: rs0
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: bl-gp2
+  service:
+    port: 27017
+    type: ClusterIP         # Internal cluster access only
+
+
+ingress-nginx:
+  namespaceOverride: "ingress-nginx"
+  host: blapp.zapto.org
+  ingressClass: nginx
+  service:
+    port: 80

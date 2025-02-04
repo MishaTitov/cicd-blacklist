@@ -1,0 +1,51 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: elasticsearch
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://helm.elastic.co  # Elastic Helm chart repository
+    targetRevision: 8.5.1             # Elasticsearch chart version
+    chart: elasticsearch               # Chart name
+    helm:
+      values: |
+        replicas: 1
+        minimumMasterNodes: 1
+        resources:
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+          limits:
+            cpu: "1000m"
+            memory: "2Gi"
+        volumeClaimTemplate:
+          storageClassName: bl-gp2
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+        antiAffinity: "soft"
+        secret:
+          enabled: true
+          password: {{ .Values.elasticsearch.password | default "espassword" }}
+        networkPolicy:
+          ## Enable creation of NetworkPolicy resources. Only Ingress traffic is filtered for now.
+          ## In order for a Pod to access Elasticsearch, it needs to have the following label:
+          ## {{ template "uname" . }}-client: "true"
+          ## Example for default configuration to access HTTP port:
+          elasticsearch-master-http-client: "true"
+          ## Example for default configuration to access transport port:
+          elasticsearch-master-transport-client: "true"
+          http:
+            enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: logging  # Namespace for Elasticsearch
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
