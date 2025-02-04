@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blacklist</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            background-color: black; /* Черный фон всей страницы */
+            color: white; /* Белый текст для контраста */
+        }
+
+        header {
+            width: 100%;
+            text-align: center;
+            padding: 20px 0;
+            background-color: black; /* Черный фон заголовка */
+            color: white; /* Белый текст */
+            box-shadow: 0 2px 4px rgba(255, 255, 255, 0.1); /* Тень для контраста */
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 2.5em;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            padding: 20px;
+            background: #1a1a1a; /* Темный фон контейнера */
+            box-shadow: 0 0 10px rgba(255, 255, 255, 0.1); /* Тень для контраста */
+            border-radius: 8px;
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+            color: white; /* Белый текст внутри контейнера */
+        }
+
+        .left-column,
+        .right-column {
+            flex: 1;
+        }
+
+        h2 {
+            color: white; /* Белый цвет для заголовков */
+            margin-bottom: 10px;
+        }
+
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        li {
+            background: #333; /* Темный фон для элементов списка */
+            margin: 10px 0;
+            padding: 10px;
+            border: 1px solid #444; /* Темная граница */
+            border-radius: 5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: white; /* Белый текст */
+        }
+
+        form {
+            margin-bottom: 20px;
+        }
+
+        input[type="text"],
+        textarea {
+            padding: 8px;
+            width: calc(100% - 20px);
+            border: 1px solid #444; /* Темная граница */
+            border-radius: 5px;
+            margin-bottom: 10px;
+            background: #333; /* Темный фон для полей ввода */
+            color: white; /* Белый текст */
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        button {
+            padding: 8px 12px;
+            background: black; /* Черный фон кнопок */
+            color: white; /* Белый текст */
+            border: 1px solid #444; /* Темная граница */
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background 0.3s ease;
+        }
+
+        button:hover {
+            background: #333; /* Темно-серый при наведении */
+        }
+
+        .delete-button {
+            background: black; /* Черный фон для кнопки удаления */
+        }
+
+        .delete-button:hover {
+            background: #333; /* Темно-серый при наведении */
+        }
+
+        .add-form {
+            margin-top: 20px;
+        }
+
+        .add-form label {
+            display: block;
+            margin-top: 10px;
+            color: white; /* Белый текст для меток */
+        }
+
+        .add-form input,
+        .add-form textarea {
+            margin-top: 5px;
+        }
+
+        .search-form {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .add-form {
+            display: flex;
+            flex-direction: column;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Blacklist Manager</h1>
+    </header>
+    <div class="container">
+        <!-- Left Column: All Entries -->
+        <div class="left-column">
+            <h2>All Entries</h2>
+            <ul id="person-list">
+                <!-- List of persons will be dynamically inserted here -->
+                <li>Loading...</li>
+            </ul>
+        </div>
+
+        <!-- Right Column: Search and Add Forms -->
+        <div class="right-column">
+            <!-- Search Form -->
+            <h2>Search by Name</h2>
+            <form id="search-form" class="search-form">
+                <input type="text" id="search-name" name="name" placeholder="Enter name">
+                <button type="submit">Search</button>
+            </form>
+
+            <!-- Search Results -->
+            <h2>Search Results</h2>
+            <ul id="search-results">
+                <!-- Search results will be dynamically inserted here -->
+            </ul>
+
+            <!-- Add Person Form -->
+            <h2>Add a Person to the Blacklist</h2>
+            <form id="add-form" class="add-form">
+                <label for="name">Name:</label>
+                <input type="text" id="name" name="name" placeholder="Enter name" required>
+                
+                <label for="reason">Reason:</label>
+                <textarea id="reason" name="reason" placeholder="Enter reason" required></textarea>
+                
+                <button type="submit">Add</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Fetch the list of persons from the Flask app
+        async function fetchPersons() {
+            try {
+                const response = await fetch('/api/get_list');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch data');
+                }
+                const persons = await response.json();
+
+                // Clear the "Loading..." message
+                const personList = document.getElementById('person-list');
+                personList.innerHTML = '';
+
+                // Add each person to the list
+                persons.forEach(person => {
+                    const li = document.createElement('li');
+                    li.textContent = `${person.name} - ${person.reason}`;
+                    personList.appendChild(li);
+                });
+            } catch (error) {
+                console.error('Error fetching data:', error);
+                const personList = document.getElementById('person-list');
+                personList.innerHTML = '<li>Error loading data. Please try again later.</li>';
+            }
+        }
+
+        // Delete a person
+        async function deletePerson(name) {
+            try {
+                const response = await fetch('/api/delete', {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `name=${encodeURIComponent(name)}`,
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to delete person');
+                }
+
+                console.log('Person deleted successfully');
+            } catch (error) {
+                console.error('Error deleting person:', error);
+            }
+        }
+
+        // Handle search form submission
+        document.getElementById('search-form').addEventListener('submit', async function (event) {
+            event.preventDefault();  // Prevent the form from submitting the traditional way
+
+            const searchName = document.getElementById('search-name').value;
+            const searchResults = document.getElementById('search-results');
+
+            if (!searchName) {
+                searchResults.innerHTML = '<li>Please enter a name to search.</li>';
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/search?name=${encodeURIComponent(searchName)}`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch search results');
+                }
+                const data = await response.json();
+
+                // Clear previous results
+                searchResults.innerHTML = '';
+
+                if (data.length > 0) {
+                    // Add each search result to the list
+                    data.forEach(person => {
+                        const li = document.createElement('li');
+                        li.textContent = `${person.name} - ${person.reason}`;
+
+                        // Add a delete button to search results
+                        const deleteButton = document.createElement('button');
+                        deleteButton.textContent = 'Delete';
+                        deleteButton.classList.add('delete-button');
+                        deleteButton.addEventListener('click', async () => {
+                            await deletePerson(person.name);
+                            fetchPersons();  // Refresh the list after deletion
+                        });
+
+                        li.appendChild(deleteButton);
+                        searchResults.appendChild(li);
+                    });
+                } else {
+                    searchResults.innerHTML = '<li>No results found.</li>';
+                }
+            } catch (error) {
+                console.error('Error fetching search results:', error);
+                searchResults.innerHTML = '<li>Error loading search results. Please try again later.</li>';
+            }
+        });
+
+        // Handle add person form submission
+        document.getElementById('add-form').addEventListener('submit', async function (event) {
+            event.preventDefault();  // Prevent the form from submitting the traditional way
+
+            const name = document.getElementById('name').value;
+            const reason = document.getElementById('reason').value;
+
+            if (!name || !reason) {
+                alert('Please fill out both fields.');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/add', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `name=${encodeURIComponent(name)}&reason=${encodeURIComponent(reason)}`,
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to add person');
+                }
+
+                // Clear the form
+                document.getElementById('add-form').reset();
+
+                // Refresh the list
+                fetchPersons();
+            } catch (error) {
+                console.error('Error adding person:', error);
+                alert('Error adding person. Please try again later.');
+            }
+        });
+
+        // Fetch data when the page loads
+        fetchPersons();
+    </script>
+</body>
+</html>

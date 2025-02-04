@@ -1,0 +1,56 @@
+services:
+  app:
+    container_name: app
+    build:
+      context: .
+      dockerfile: Dockerfile-app
+    env_file:
+      - .env
+    environment:
+      - MONGO_URI=${MONGO_URI}
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+    networks:
+      - app-nginx-network
+      - app-mongodb-network
+    depends_on:
+      - mongodb
+
+  nginx:
+    build:
+      context: .
+      dockerfile: ./nginx/Dockerfile-nginx
+    container_name: nginx
+    ports:
+      - 80:80
+    networks:
+      - app-nginx-network
+    depends_on:
+      - app
+
+  mongodb:
+    build:
+      context: .
+      dockerfile: ./data/Dockerfile-mongodb
+    container_name: mongodb
+    env_file:
+      - .env
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${DB_ROOT_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+      - DB_USERNAME=${DB_USERNAME}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - MONGO_INITDB_DATABASE=${DB_NAME}
+    volumes:
+      - mongodb-data:/data/db
+    networks:
+      - app-mongodb-network
+
+networks:
+  app-nginx-network:
+    name: app-nginx-network
+  app-mongodb-network:
+
+volumes:
+  mongodb-data:

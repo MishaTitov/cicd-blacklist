@@ -1,0 +1,13 @@
+services:
+  e2e-tests:
+    build:
+      context: .
+      dockerfile: Dockerfile-e2e
+    environment:
+      - BASE_URL=http://nginx
+    networks:
+      - app-nginx-network
+
+networks:
+  app-nginx-network:
+    external: true

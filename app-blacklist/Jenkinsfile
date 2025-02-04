@@ -1,0 +1,218 @@
+pipeline {
+    agent any
+
+    options {
+        timeout(time: 10, unit: "MINUTES")
+        timestamps()
+    }
+
+    stages {
+        stage("Checkout") {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage("Unit Tests") {
+            steps {
+                echo "Unit Tests stage"
+                sh """
+                    docker build -t utest -f tests/Dockerfile-unit .
+                    docker run --rm utest
+                    docker rmi utest
+                """
+            }
+        }
+
+        stage("Build") {
+            steps {
+                echo "Build stage"
+                configFileProvider([configFile(fileId: 'env-blacklist', variable: 'ENV_FILE')])
+                {
+                    sh """
+                        cp ${ENV_FILE} .env
+                        docker compose up --build -d
+                        docker exec -d mongodb mongosh /docker-entrypoint-initdb.d/mongodb-init.js -u ${env.MONGO_INITDB_ROOT_USERNAME} -p ${env.MONGO_INITDB_ROOT_PASSWORD} --authenticationDatabase admin"
+                    """
+                }
+            }
+        }
+
+        stage("Package") {
+            steps {
+                echo "Package stage"
+            }
+        }
+
+        stage("E2E Tests") {
+            when {
+                anyOf{
+                    branch 'main'
+                    branch 'feature/*'
+                }
+            }
+            steps {
+                script {
+                    echo "E2E Tests stage"
+                    // sh "docker compose -f tests/docker-compose.yaml up --build"
+                    def exitCode = sh(script: 'docker compose -f tests/docker-compose.yaml up --build --exit-code-from e2e-tests --abort-on-container-exit', returnStatus: true)
+
+                    // Check if exit code is 1
+                    if (exitCode == 1) {
+                        echo 'e2e tests failed with exit code 1'
+                        currentBuild.result = 'FAILURE'
+                    } else if (exitCode == 0) {
+                        echo 'e2e tests passed successfully'
+                    } else {
+                        echo "e2e tests returned unexpected exit code: ${exitCode}"
+                        currentBuild.result = 'FAILURE'
+                    }
+                    sh """
+                        docker compose -f tests/docker-compose.yaml down
+                        docker compose down
+                    """
+                }
+            }
+        }
+
+        stage("Version Bump") {
+            when {
+                branch 'main'
+            }
+            steps {
+                echo "Version Bump branch = ${env.GIT_BRANCH}"
+                bumpVersionByCurrentBranch()
+            }
+        }
+
+        stage("Publish") {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    echo "Publish stage"
+                    sh "aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 600627353694.dkr.ecr.ap-south-1.amazonaws.com"
+                    // Backend Image
+                    sh """
+                        docker build -t michael.titov/blacklist-app:${env.NEXT_VERSION} -f Dockerfile-app .
+                        docker tag michael.titov/blacklist-app:${env.NEXT_VERSION} 600627353694.dkr.ecr.ap-south-1.amazonaws.com/michael.titov/blacklist-app:${env.NEXT_VERSION}
+                        docker push 600627353694.dkr.ecr.ap-south-1.amazonaws.com/michael.titov/blacklist-app:${env.NEXT_VERSION}
+                    """
+                    // Frontend Image
+                    sh """
+                        docker build -t michael.titov/blacklist-frontend:${env.NEXT_VERSION} -f Dockerfile-frontend .
+                        docker tag michael.titov/blacklist-frontend:${env.NEXT_VERSION} 600627353694.dkr.ecr.ap-south-1.amazonaws.com/michael.titov/blacklist-frontend:${env.NEXT_VERSION}
+                        docker push 600627353694.dkr.ecr.ap-south-1.amazonaws.com/michael.titov/blacklist-frontend:${env.NEXT_VERSION}
+                    """
+                }
+            }
+        }
+
+        stage("Deploy") {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    echo "Deploy stage"
+                    checkout([
+                        $class: 'GitSCM',
+                        branches: [[name: '*/main']],  // Replace with your target branch
+                        extensions: [],
+                        userRemoteConfigs: [
+                            [
+                                url: 'https://github.com/MishaTitov/gitops-blacklist.git',  // Replace with your repo URL
+                                credentialsId: 'github-access-token'  // Replace with your credentials ID
+                            ]
+                        ]
+                    ])                    
+                    sh """
+                        echo '600627353694.dkr.ecr.ap-south-1.amazonaws.com/michael.titov/blacklist-app:${env.NEXT_VERSION}' > image-tag
+                        echo '600627353694.dkr.ecr.ap-south-1.amazonaws.com/michael.titov/blacklist-frontend:${env.NEXT_VERSION}' >> image-tag
+                    """
+                    sh "sed -i 's/tag: .*/tag: ${env.NEXT_VERSION}/' charts/blacklist-umbrella/values.yaml"
+                    sh """
+                        git commit -am 'Update image tag to ${env.NEXT_VERSION}
+                        git push origin main
+                    """
+                }
+            }
+        }
+
+        stage("Git Tagging") {
+            when {
+                branch 'main'
+            }
+            steps {
+                echo "Git Tagging branch = ${env.NEXT_VERSION}"
+                pushTagVersion()
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "TODO always"
+            cleanWs()
+        }
+        success {
+            echo "Report success"
+        }
+
+        failure {
+            echo "Report failure"
+        }
+    }
+}
+
+// ==================== FUNCS ====================
+
+def bumpVersionByCurrentBranch() {
+    // Sanitize branch name (remove 'origin/' prefix if present)
+    def currBranch = env.GIT_BRANCH.replaceAll('origin/', '')
+    echo "Current branch: ${currBranch}"
+    def latestTag
+    withCredentials([usernamePassword(credentialsId: 'github-access-token', usernameVariable: 'GITHUB_USER', passwordVariable: 'GITHUB_TOKEN')]) {
+        // Update remote URL for authentication
+        sh 'git remote set-url origin https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/${GITHUB_USER}/black-list-app.git'
+        // Fetch all tags from remote
+        sh 'git fetch --tags --force'
+        // Get the latest valid SemVer tag on the current branch
+        latestTag = sh(
+            script: "git tag --sort=-v:refname | head -n 1",
+            returnStdout: true
+        ).trim()
+
+        echo "Latest valid SemVer tag on branch '${currBranch}': ${latestTag}"
+    }
+    def nextVersion
+    if (!latestTag) {
+        nextVersion = "1.0.0"
+    } else {
+        def versionParts = latestTag.split('\\.')
+
+        // Validate version parts
+        if (versionParts.size() != 3) {
+            error("Invalid SemVer tag: ${latestTag}. Expected format: [v]X.Y.Z")
+        }
+
+        // Increment patch version
+        def major = versionParts[0]
+        def minor = versionParts[1]
+        def patch = versionParts[2].toInteger() + 1
+        nextVersion = "${major}.${minor}.${patch}"
+    }
+
+    env.NEXT_VERSION = nextVersion
+    echo "New release version: ${nextVersion}"
+}
+
+
+def pushTagVersion() {
+    withCredentials([usernamePassword(credentialsId: 'github-access-token', usernameVariable:'GITHUB_USER', passwordVariable: 'GITHUB_TOKEN')]) {
+        sh "git tag -d ${env.NEXT_VERSION} || true"
+        sh "git tag ${env.NEXT_VERSION}"
+        sh "git push origin ${env.NEXT_VERSION}"
+    }
+}

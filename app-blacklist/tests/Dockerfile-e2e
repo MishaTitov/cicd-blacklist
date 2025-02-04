@@ -1,0 +1,14 @@
+# Use an official Python runtime as the base image
+FROM python:3.12.3-slim
+
+# Set the working directory in the container
+WORKDIR /e2e_test
+
+# Install dependencies
+RUN pip install requests
+
+# Copy the test script and any other necessary files
+COPY e2e_test.py .
+
+# Command to run the tests
+CMD ["python", "e2e_test.py"]
